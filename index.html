@@ -15,13 +15,22 @@
     <script>
     // screen
     const ResizeableWindow = function(w, h) {
+      this.width = w;
+      this.height = h;
       this.controllers = [];
       this.interactables = [];
       this.isSelecting = false;
       this.object3D = new THREE.Group();
       var object3D = this.object3D;
 
-      var screen = this.makeScreen(w, h);
+      this.windowState = {
+        screenPosition: null,
+        screenScale: null,
+        handlePosition: null
+      }
+
+
+      var screen = this.makeScreen();
       this.screen = screen;
       object3D.add(screen);
       
@@ -33,9 +42,8 @@
       object3D.add(handle);
 
       var reposition = this.makeReposition();
-      reposition.position.x = 0;
-      reposition.position.y = h / 2;
       this.reposition = reposition;
+      this.updateRepositionHandle();
       this.interactables.push(reposition);
       object3D.add(reposition);
 
@@ -53,19 +61,21 @@
     }
 
     ResizeableWindow.prototype.makeCursor = function () {
-      var geo, mat, mesh;
-      geo = new THREE.SphereGeometry( 0.2 );
-      mat = new THREE.MeshBasicMaterial({color: 0xf34b1b, wireframe: true});
-      mesh = new THREE.Mesh( geo, mat );
-      return mesh;
+      // var geo, mat, mesh;
+      // geo = new THREE.SphereGeometry( 0.2 );
+      // mat = new THREE.MeshBasicMaterial({color: 0xf34b1b, wireframe: true});
+      // mesh = new THREE.Mesh( geo, mat );
+      return new THREE.Group();
     }
 
-    ResizeableWindow.prototype.makeScreen = function(w, h) {
+    ResizeableWindow.prototype.makeScreen = function() {
         var geo, mat, mesh;
+        var width = this.width;
+        var height = this.height;
         geo = new THREE.PlaneGeometry( 1, 1, 1 );
         mat = new THREE.MeshBasicMaterial({color: 0xc0c0c0, wireframe: true});
         mesh = new THREE.Mesh( geo, mat );
-        mesh.scale.set(w, h, 1);
+        mesh.scale.set(width, height, 1);
         return mesh;
     }
 
@@ -110,19 +120,17 @@
       var screenPosition = new THREE.Vector3().copy(this.screen.position);
       var screenScale = new THREE.Vector3().copy(this.screen.scale);
       var handlePosition = new THREE.Vector3().copy(this.handle.position);
-      
-      var windowState = {
-        screenPosition: screenPosition,
-        screenScale: screenScale,
-        handlePosition: handlePosition
-      }
-      this.windowState = windowState;
-      return windowState;
+
+      this.windowState.screenPosition = screenPosition;
+      this.windowState.screenScale = screenScale;
+      this.windowState.handlePosition = handlePosition;
+      return this.windowState;
     }
 
     ResizeableWindow.prototype.clearWindowState = function () {
       var windowState = this.windowState;
       windowState.screenScale = null;
+      windowState.handlePosition = null;
       windowState.handlePosition = null;
     }
 
@@ -156,6 +164,9 @@
         screen.scale.set(screenScaleX,
           screenScaleY,
           screen.scale.z);
+
+        // set reposition
+        this.updateRepositionHandle();
       }
     }
 
@@ -187,6 +198,18 @@
           this.windowState.handlePosition.y + screenPositionDiff.y,
           this.windowState.handlePosition.z + screenPositionDiff.z)
       }
+    }
+
+    ResizeableWindow.prototype.updateRepositionHandle = function() {
+      var reposition = this.reposition;
+
+      var positionX = 0;
+      var positionY = this.height / 2;
+      if (this.windowState && this.windowState.screenScale) {
+        positionY *= (this.windowState.screenScale.y / 2);
+      }
+      reposition.position.x = positionX;
+      reposition.position.y = positionY;
     }
 
     ResizeableWindow.prototype.update = function() {
@@ -305,9 +328,7 @@
         }
 
         function onSelectEnd() {
-
           this.userData.isSelecting = false;
-
         }
 
         controller1 = renderer.vr.getController( 0 );
