@@ -106,19 +106,32 @@
       this.isSelecting = false;
     }
 
-    ResizeableWindow.prototype.repositionHandle = function () {
+    ResizeableWindow.prototype.saveWindowState = function() {
+      var screenPosition = new THREE.Vector3().copy(this.screen.position);
+      var screenScale = new THREE.Vector3().copy(this.screen.scale);
+      var handlePosition = new THREE.Vector3().copy(this.handle.position);
+      
+      var windowState = {
+        screenPosition: screenPosition,
+        screenScale: screenScale,
+        handlePosition: handlePosition
+      }
+      this.windowState = windowState;
+      return windowState;
+    }
 
+    ResizeableWindow.prototype.clearWindowState = function () {
+      var windowState = this.windowState;
+      windowState.screenScale = null;
+      windowState.handlePosition = null;
     }
 
     ResizeableWindow.prototype.resizeHandle = function() {
       var isResize = this.startIntersection && this.startIntersection.object.name == 'resizeHandle';
       
-      if (this.startIntersection && !this.isSelecting) {
-        console.log('end select');
-        this.startIntersection = false;
-        this.currentController = null;
-        this.oldHandlePosition = null;
-        this.oldScreenScale = null;
+      // trigger up
+      if (this.startIntersection && !this.isSelecting && isResize) {
+        this.clearWindowState();
       }
 
       // update until trigger is up
@@ -130,23 +143,49 @@
         cursorPosition.applyMatrix4(this.currentController.matrixWorld);
         this.cursor.position.copy(this.object3D.worldToLocal(cursorPosition));
 
-        // store initial scale and position
-        if (!this.oldHandlePosition && !this.oldScreenScale) {
-          this.oldHandlePosition = new THREE.Vector3().copy(this.handle.position);
-          this.oldScreenScale = new THREE.Vector3().copy(this.screen.scale);
-        }
+        this.saveWindowState();
 
         // set handle position
         this.handle.position.set(cursorPosition.x, cursorPosition.y, this.handle.position.z);
 
-        // set screen scale
-        var handleDiff = new THREE.Vector3().subVectors(this.handle.position, this.oldHandlePosition);
-        var screenScaleX = this.oldScreenScale.x * (1 + (handleDiff.x / this.oldHandlePosition.x));
-        var screenScaleY = this.oldScreenScale.y * (1 + (handleDiff.y / this.oldHandlePosition.y));
+        // set screen based off of handle position
+        var handleDiff = new THREE.Vector3().subVectors(this.handle.position, this.windowState.handlePosition);
+        var screenScaleX = this.windowState.screenScale.x * (1 + (handleDiff.x / this.windowState.handlePosition.x));
+        var screenScaleY = this.windowState.screenScale.y * (1 + (handleDiff.y / this.windowState.handlePosition.y));
 
         screen.scale.set(screenScaleX,
           screenScaleY,
           screen.scale.z);
+      }
+    }
+
+    ResizeableWindow.prototype.repositionHandle = function () {
+      var isRepositioning = this.startIntersection && this.startIntersection.object.name == 'repositionHandle';
+
+      // trigger up
+      if (this.startIntersection && !this.isSelecting && isRepositioning) {
+        this.clearWindowState();
+      }
+
+      // we're interacting with UI element
+      if (this.startIntersection && isRepositioning) {
+        // move cursor to UI element intersection
+        var cursorPosition = new THREE.Vector3(0, 0, this.startIntersection.distance * -1);
+        cursorPosition.applyMatrix4(this.currentController.matrixWorld);
+        this.cursor.position.copy(this.object3D.worldToLocal(cursorPosition));
+
+        this.saveWindowState();
+
+        if (!this.screenCursorDiff) {
+          this.screenCursorDiff = new THREE.Vector3().subVectors(this.screen.position, this.reposition.position);
+        }
+        this.screen.position.copy(this.cursor.position.add(this.screenCursorDiff));
+        this.reposition.position.set(cursorPosition.x, cursorPosition.y, cursorPosition.z);
+        
+        var screenPositionDiff = new THREE.Vector3().subVectors(this.screen.position, this.windowState.screenPosition);
+        this.handle.position.set(this.windowState.handlePosition.x + screenPositionDiff.x,
+          this.windowState.handlePosition.y + screenPositionDiff.y,
+          this.windowState.handlePosition.z + screenPositionDiff.z)
       }
     }
 
@@ -176,6 +215,12 @@
             break;
           }
         }
+      }
+
+      // trigger up
+      if (this.startIntersection && !this.isSelecting) {
+        this.startIntersection = false;
+        this.currentController = null;
       }
 
       this.resizeHandle();
