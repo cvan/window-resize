@@ -315,6 +315,13 @@
         controller1.add( new THREE.Line( geometry, material ) );
         controller2.add( new THREE.Line( geometry, material ) );
 
+        var controllerMat = new THREE.MeshBasicMaterial({color: 0xec2f2f});
+        var controllerGeo = new THREE.BoxGeometry( 0.07, 0.04, 0.2 );
+        var controllerMesh1 = new THREE.Mesh(controllerGeo, controllerMat);
+        var controllerMesh2 = new THREE.Mesh(controllerGeo, controllerMat);
+        controller1.add(controllerMesh1);
+        controller2.add(controllerMesh2);
+
         //
         window.addEventListener( 'resize', onWindowResize, false );
 
