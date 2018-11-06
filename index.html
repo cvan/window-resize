@@ -7,215 +7,132 @@
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
     <link rel="stylesheet" type="text/css" href="styles/style.css">
+    <script src='vendor/state-machine.min.js'></script>
     <script src="vendor/three.min.js"></script>
     <script src="vendor/extras/BoxLineGeometry.js"></script>
     <script src="vendor/extras/WebVR.js"></script>
   </head>
   <body>
     <script>
-    // screen
-    const ResizeableWindow = function(w, h) {
-      this.width = w;
-      this.height = h;
-      this.controllers = [];
-      this.interactables = [];
-      this.isSelecting = false;
-      this.object3D = new THREE.Group();
-      var object3D = this.object3D;
 
-      this.windowState = {
-        screenPosition: null,
-        screenScale: null,
-        handlePosition: null
+    var windowState = new StateMachine({
+      init: 'idle',
+      transitions: [
+        { name: 'resize', from: 'idle', to: 'resizing' },
+        { name: 'move', from: 'idle', to: 'moving' },
+        { name: 'reset', from: ['resizing', 'moving'], to: 'idle'}],
+      data: {
+        width: 3,
+        height: 2,
+        intersection: null,
+        controller: null
+      },
+      methods: {
+        setSize: function(w, h) {
+          this.width = w;
+          this.height = h;
+        },
+        setControllerIntersection: function(controller, intersection) {
+          if (this.controller && this.intersection) {
+            return;
+          }
+          this.controller = controller;
+          this.intersection = intersection;
+        },
+        clearControllerIntersection: function() {
+          this.controller = null;
+          this.intersection = null;
+        }
       }
+    });
 
+    const rWindow = function (width, height) {
+      var object3D;
+      var windowMesh;
+      var resizeControl;
+      var moveControl;
+      var interactables;
 
-      var screen = this.makeScreen();
-      this.screen = screen;
-      object3D.add(screen);
-      
-      var handle = this.makeHandle();
-      handle.position.x = w / 2;
-      handle.position.y = h / 2 * -1;
-      this.handle = handle;
-      this.interactables.push(handle);
-      object3D.add(handle);
+      var state = this.state = windowState;
+      this.state.observe('onReset', this.state.clearControllerIntersection);
 
-      var reposition = this.makeReposition();
-      this.reposition = reposition;
-      this.updateRepositionHandle();
-      this.interactables.push(reposition);
-      object3D.add(reposition);
+      this.controllers = [];
+      this.isSelecting = false;
 
-      var cursor = this.makeCursor();
-      this.cursor = cursor;
-      object3D.add(cursor);
-      
-      this.currentController = null;
-      this.startIntersection = null;
-
+      object3D = this.object3D = new THREE.Group(); 
       this.raycaster = new THREE.Raycaster();
       this.tempMatrix = new THREE.Matrix4();
+      windowMesh = this.windowMesh = this.makeWindowMesh();
+      resizeControl = this.resizeControl = this.makeResizeControl();
+      moveControl = this.moveControl = this.makeMoveControl();
+
+      // UI elements which rayaster will respond to.
+      interactables = this.interactables = [];
+      interactables.push(resizeControl);
+      interactables.push(moveControl);
+
+      object3D.add(windowMesh);
+      object3D.add(resizeControl);
+      object3D.add(moveControl);
+
+      if (width && height) {
+        state.setSize(width, height);
+      }
 
       return this;
     }
 
-    ResizeableWindow.prototype.makeCursor = function () {
-      // var geo, mat, mesh;
-      // geo = new THREE.SphereGeometry( 0.2 );
-      // mat = new THREE.MeshBasicMaterial({color: 0xf34b1b, wireframe: true});
-      // mesh = new THREE.Mesh( geo, mat );
-      return new THREE.Group();
+    rWindow.prototype.makeWindowMesh = function () {
+      var geo, mat, mesh;
+      var width = this.width;
+      var height = this.height;
+      geo = new THREE.PlaneGeometry( 1, 1, 1 );
+      mat = new THREE.MeshBasicMaterial({color: 0xc0c0c0, wireframe: true});
+      mesh = new THREE.Mesh( geo, mat );
+      mesh.scale.set(width, height, 1);
+      return mesh;
     }
 
-    ResizeableWindow.prototype.makeScreen = function() {
-        var geo, mat, mesh;
-        var width = this.width;
-        var height = this.height;
-        geo = new THREE.PlaneGeometry( 1, 1, 1 );
-        mat = new THREE.MeshBasicMaterial({color: 0xc0c0c0, wireframe: true});
-        mesh = new THREE.Mesh( geo, mat );
-        mesh.scale.set(width, height, 1);
-        return mesh;
+    rWindow.prototype.makeResizeControl = function () {
+      var geo, mat, mesh;
+      geo = new THREE.BoxGeometry( 0.2, 0.2, 0.2 );
+      mat = new THREE.MeshBasicMaterial({color: 0x00ff00});
+      mesh = new THREE.Mesh( geo, mat );
+      mesh.name = 'resizeHandle';
+      return mesh;
     }
 
-    ResizeableWindow.prototype.makeReposition = function() {
-        var geo, mat, mesh;
-        geo = new THREE.BoxGeometry( 1, 0.2, 0.2 );
-        mat = new THREE.MeshBasicMaterial({color: 0x00ffff});
-        mesh = new THREE.Mesh( geo, mat );
-        mesh.name = 'repositionHandle';
-        return mesh;
+    rWindow.prototype.makeMoveControl = function () {
+      var geo, mat, mesh;
+      geo = new THREE.BoxGeometry( 1, 0.2, 0.2 );
+      mat = new THREE.MeshBasicMaterial({color: 0x00ffff});
+      mesh = new THREE.Mesh( geo, mat );
+      mesh.name = 'repositionHandle';
+      return mesh;
     }
 
-    ResizeableWindow.prototype.makeHandle = function() {
-        var geo, mat, mesh;
-        geo = new THREE.BoxGeometry( 0.2, 0.2, 0.2 );
-        mat = new THREE.MeshBasicMaterial({color: 0x00ff00});
-        mesh = new THREE.Mesh( geo, mat );
-        mesh.name = 'resizeHandle';
-        return mesh;
-    }
-
-    ResizeableWindow.prototype.registerController = function(controller) {
-      if (this.controllers.indexOf(controller) != -1) {
+    rWindow.prototype.registerController = function(controller) {
+      var controllers = this.controllers;
+      if (controllers.indexOf(controller) != -1) {
         return;
       }
 
-      this.controllers.push(controller);
+      controllers.push(controller);
 
       controller.addEventListener('selectstart', this.controllerSelectStart.bind(this));
       controller.addEventListener('selectend', this.controllerSelectEnd.bind(this));
     }
 
-    ResizeableWindow.prototype.controllerSelectStart = function(e) {
+    rWindow.prototype.controllerSelectStart = function (e) {
       this.isSelecting = true;
     }
 
-    ResizeableWindow.prototype.controllerSelectEnd = function(e) {
+    rWindow.prototype.controllerSelectEnd = function (e) {
       this.isSelecting = false;
     }
 
-    ResizeableWindow.prototype.saveWindowState = function() {
-      var screenPosition = new THREE.Vector3().copy(this.screen.position);
-      var screenScale = new THREE.Vector3().copy(this.screen.scale);
-      var handlePosition = new THREE.Vector3().copy(this.handle.position);
-
-      this.windowState.screenPosition = screenPosition;
-      this.windowState.screenScale = screenScale;
-      this.windowState.handlePosition = handlePosition;
-      return this.windowState;
-    }
-
-    ResizeableWindow.prototype.clearWindowState = function () {
-      var windowState = this.windowState;
-      windowState.screenScale = null;
-      windowState.handlePosition = null;
-      windowState.handlePosition = null;
-    }
-
-    ResizeableWindow.prototype.resizeHandle = function() {
-      var isResize = this.startIntersection && this.startIntersection.object.name == 'resizeHandle';
-      
-      // trigger up
-      if (this.startIntersection && !this.isSelecting && isResize) {
-        this.clearWindowState();
-      }
-
-      // update until trigger is up
-      if (this.startIntersection && isResize) {
-        var screen = this.screen;
-
-        // move cursor to UI element intersection
-        var cursorPosition = new THREE.Vector3(0, 0, this.startIntersection.distance * -1);
-        cursorPosition.applyMatrix4(this.currentController.matrixWorld);
-        this.cursor.position.copy(this.object3D.worldToLocal(cursorPosition));
-
-        this.saveWindowState();
-
-        // set handle position
-        this.handle.position.set(cursorPosition.x, cursorPosition.y, this.handle.position.z);
-
-        // set screen based off of handle position
-        var handleDiff = new THREE.Vector3().subVectors(this.handle.position, this.windowState.handlePosition);
-        var screenScaleX = this.windowState.screenScale.x * (1 + (handleDiff.x / this.windowState.handlePosition.x));
-        var screenScaleY = this.windowState.screenScale.y * (1 + (handleDiff.y / this.windowState.handlePosition.y));
-
-        screen.scale.set(screenScaleX,
-          screenScaleY,
-          screen.scale.z);
-
-        // set reposition
-        this.updateRepositionHandle();
-      }
-    }
-
-    ResizeableWindow.prototype.repositionHandle = function () {
-      var isRepositioning = this.startIntersection && this.startIntersection.object.name == 'repositionHandle';
-
-      // trigger up
-      if (this.startIntersection && !this.isSelecting && isRepositioning) {
-        this.clearWindowState();
-      }
-
-      // we're interacting with UI element
-      if (this.startIntersection && isRepositioning) {
-        // move cursor to UI element intersection
-        var cursorPosition = new THREE.Vector3(0, 0, this.startIntersection.distance * -1);
-        cursorPosition.applyMatrix4(this.currentController.matrixWorld);
-        this.cursor.position.copy(this.object3D.worldToLocal(cursorPosition));
-
-        this.saveWindowState();
-
-        // reposition window
-        if (!this.screenCursorDiff) {
-          this.screenCursorDiff = new THREE.Vector3().subVectors(this.screen.position, this.reposition.position);
-        }
-        this.screen.position.copy(this.cursor.position.add(this.screenCursorDiff));
-        this.reposition.position.set(cursorPosition.x, cursorPosition.y, cursorPosition.z);
-        
-        var screenPositionDiff = new THREE.Vector3().subVectors(this.screen.position, this.windowState.screenPosition);
-        this.handle.position.set(this.windowState.handlePosition.x + screenPositionDiff.x,
-          this.windowState.handlePosition.y + screenPositionDiff.y,
-          this.windowState.handlePosition.z + screenPositionDiff.z);
-      }
-    }
-
-    ResizeableWindow.prototype.updateRepositionHandle = function() {
-      var reposition = this.reposition;
-      var positionX = 0;
-      var positionY = this.height / 2;
-      if (this.windowState && this.windowState.screenScale) {
-        positionY *= (this.windowState.screenScale.y / 2);
-      }
-      reposition.position.x = positionX;
-      reposition.position.y = positionY;
-    }
-
-    ResizeableWindow.prototype.update = function() {
-      // save point which user interacts with UI element, update UI element until user releases select, then save end point.
+    rWindow.prototype.updateInteractionState = function () {
       var intersection = null;
-
       for (var controller of this.controllers) {
         var tempMatrix = this.tempMatrix;
         var raycaster = this.raycaster;
@@ -230,26 +147,78 @@
         // trigger down on UI element
         if (intersections.length > 0 && this.isSelecting) {
           var intersection = intersections[0];
-          
-          if (!this.startIntersection) {
-            this.startIntersection = intersection;
-            this.currentController = controller;
-
-            break;
+          var isIdle = windowState.is('idle');
+          this.state.setControllerIntersection(controller, intersection);
+          if (intersection.object == this.resizeControl && isIdle) {
+            this.state.resize();
           }
+
+          if (intersection.object == this.moveControl && isIdle) {
+            this.state.move();
+          }
+          break;
+        }
+
+        // trigger up
+        if (!this.isSelecting && !windowState.is('idle')) {
+          this.state.reset();
         }
       }
-
-      // trigger up
-      if (this.startIntersection && !this.isSelecting) {
-        this.startIntersection = false;
-        this.currentController = null;
-      }
-
-      this.resizeHandle();
-      this.repositionHandle();
     }
 
+    rWindow.prototype.onResize = function () {
+      var intersection = this.state.intersection;
+      var controller = this.state.controller;
+      var resizeControl = this.resizeControl;
+      var object3D = this.object3D;
+
+      // set a cursor to UI element intersection and adjust control and window size to cursor position.
+      var cursorPosition = new THREE.Vector3(0, 0, intersection.distance * -1);
+      cursorPosition.applyMatrix4(controller.matrixWorld);
+      cursorPosition.copy(object3D.worldToLocal(cursorPosition));
+
+      resizeControl.position.set(cursorPosition.x, cursorPosition.y, resizeControl.position.z);
+      this.state.width = cursorPosition.x * 2;
+      this.state.height = cursorPosition.y * -2;
+    }
+
+    rWindow.prototype.onMove = function () {
+      var intersection = this.state.intersection;
+      var controller = this.state.controller;
+      var moveControl = this.moveControl;
+      var object3D = this.object3D;
+
+      var cursorPosition = new THREE.Vector3(0, 0, intersection.point.z);
+      cursorPosition.applyMatrix4(controller.matrixWorld);
+      cursorPosition.add(new THREE.Vector3(0, -this.state.height / 2, 0));
+      object3D.position.copy(cursorPosition);
+    }
+
+    rWindow.prototype.update = function () {
+      var windowMesh = this.windowMesh;
+      var resizeControl = this.resizeControl;
+      var moveControl = this.moveControl;
+
+      // set window size
+      windowMesh.scale.set(this.state.width, this.state.height, 1);
+      // set ui control positions
+      resizeControl.position.x = this.state.width / 2;
+      resizeControl.position.y = this.state.height / 2 * -1;
+      resizeControl.position.z = 0;      
+      moveControl.position.x = 0;
+      moveControl.position.y = this.state.height / 2;
+      moveControl.position.z = 0;
+
+      // update window state interactions
+      this.updateInteractionState();
+
+      if (this.state.is('resizing')) {
+        this.onResize();
+      }
+      if (this.state.is('moving')) {
+        this.onMove();
+      }
+    }
     </script>
     <script>
       var container;
@@ -263,8 +232,7 @@
       var normal = new THREE.Vector3();
       var relativeVelocity = new THREE.Vector3();
 
-
-      var myWindow;
+      var resizeable;
 
       init();
       animate();
@@ -325,15 +293,14 @@
         //
         window.addEventListener( 'resize', onWindowResize, false );
 
-        // resizeable window stuff.
-        myWindow = new ResizeableWindow(3, 2);
-        myWindow.object3D.position.z = -3;
-        myWindow.object3D.position.y = 1.5;
+        // resizeable window
+        resizeable = new rWindow();
+        resizeable.object3D.position.z = -3;
+        resizeable.object3D.position.y = 1.5;
+        resizeable.registerController(controller1);
+        resizeable.registerController(controller2);
 
-        myWindow.registerController(controller1);
-        myWindow.registerController(controller2);
-
-        scene.add(myWindow.object3D);
+        scene.add(resizeable.object3D);
       }
 
       function onWindowResize() {
@@ -347,7 +314,7 @@
       }
 
       function render() {
-        myWindow.update();
+        resizeable.update();
         renderer.render( scene, camera );
       }
     </script>
