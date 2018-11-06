@@ -14,48 +14,43 @@
   </head>
   <body>
     <script>
-
-    var windowState = new StateMachine({
-      init: 'idle',
-      transitions: [
-        { name: 'resize', from: 'idle', to: 'resizing' },
-        { name: 'move', from: 'idle', to: 'moving' },
-        { name: 'reset', from: ['resizing', 'moving'], to: 'idle'}],
-      data: {
-        width: 3,
-        height: 2,
-        intersection: null,
-        controller: null
-      },
-      methods: {
-        setSize: function(w, h) {
-          this.width = w;
-          this.height = h;
-        },
-        setControllerIntersection: function(controller, intersection) {
-          if (this.controller && this.intersection) {
-            return;
-          }
-          this.controller = controller;
-          this.intersection = intersection;
-        },
-        clearControllerIntersection: function() {
-          this.controller = null;
-          this.intersection = null;
-        }
-      }
-    });
-
-    const rWindow = function (width, height) {
+      const rWindow = function (width, height) {
       var object3D;
       var windowMesh;
       var resizeControl;
       var moveControl;
       var interactables;
-
-      var state = this.state = windowState;
+      var state = this.state = new StateMachine({
+        init: 'idle',
+        transitions: [
+          { name: 'resize', from: 'idle', to: 'resizing' },
+          { name: 'move', from: 'idle', to: 'moving' },
+          { name: 'reset', from: ['resizing', 'moving'], to: 'idle'}],
+        data: {
+          width: 3,
+          height: 2,
+          intersection: null,
+          controller: null
+        },
+        methods: {
+          setSize: function(w, h) {
+            this.width = w;
+            this.height = h;
+          },
+          setControllerIntersection: function(controller, intersection) {
+            if (this.controller && this.intersection) {
+              return;
+            }
+            this.controller = controller;
+            this.intersection = intersection;
+          },
+          clearControllerIntersection: function() {
+            this.controller = null;
+            this.intersection = null;
+          }
+        }
+      });
       this.state.observe('onReset', this.state.clearControllerIntersection);
-
       this.controllers = [];
       this.isSelecting = false;
 
@@ -133,6 +128,7 @@
 
     rWindow.prototype.updateInteractionState = function () {
       var intersection = null;
+      var state = this.state;
       for (var controller of this.controllers) {
         var tempMatrix = this.tempMatrix;
         var raycaster = this.raycaster;
@@ -147,7 +143,7 @@
         // trigger down on UI element
         if (intersections.length > 0 && this.isSelecting) {
           var intersection = intersections[0];
-          var isIdle = windowState.is('idle');
+          var isIdle = state.is('idle');
           this.state.setControllerIntersection(controller, intersection);
           if (intersection.object == this.resizeControl && isIdle) {
             this.state.resize();
@@ -160,7 +156,7 @@
         }
 
         // trigger up
-        if (!this.isSelecting && !windowState.is('idle')) {
+        if (!this.isSelecting && !state.is('idle')) {
           this.state.reset();
         }
       }
