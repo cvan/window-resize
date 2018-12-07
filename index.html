@@ -54,21 +54,25 @@
       this.controllers = [];
       this.isSelecting = false;
 
-      object3D = this.object3D = new THREE.Group(); 
+      object3D = this.object3D = new THREE.Group();
       this.raycaster = new THREE.Raycaster();
       this.tempMatrix = new THREE.Matrix4();
       windowMesh = this.windowMesh = this.makeWindowMesh();
       resizeControl = this.resizeControl = this.makeResizeControl();
       moveControl = this.moveControl = this.makeMoveControl();
+      distanceControl = this.distanceControl = this.makeDistanceControl();
 
       // UI elements which rayaster will respond to.
       interactables = this.interactables = [];
       interactables.push(resizeControl);
       interactables.push(moveControl);
+      interactables.push(distanceControl);
 
       object3D.add(windowMesh);
       object3D.add(resizeControl);
       object3D.add(moveControl);
+      object3D.add(distanceControl);
+      //object3D.add(new THREE.AxesHelper(1));
 
       if (width && height) {
         state.setSize(width, height);
@@ -99,10 +103,19 @@
 
     rWindow.prototype.makeMoveControl = function () {
       var geo, mat, mesh;
-      geo = new THREE.BoxGeometry( 1, 0.2, 0.2 );
+      geo = new THREE.BoxGeometry( 1, 1, 1 );
       mat = new THREE.MeshBasicMaterial({color: 0x00ffff});
       mesh = new THREE.Mesh( geo, mat );
       mesh.name = 'repositionHandle';
+      return mesh;
+    }
+
+    rWindow.prototype.makeDistanceControl = function () {
+      var geo, mat, mesh;
+      geo = new THREE.BoxGeometry( 0.2, 0.2, 0.2 );
+      mat = new THREE.MeshBasicMaterial({color: 0xfbf755});
+      mesh = new THREE.Mesh( geo, mat );
+      mesh.name = 'distanceHandle';
       return mesh;
     }
 
@@ -178,7 +191,7 @@
       this.state.height = cursorPosition.y * -2;
     }
 
-    rWindow.prototype.onMove = function () {
+    rWindow.prototype.onMove = function (camera) {
       var intersection = this.state.intersection;
       var controller = this.state.controller;
       var moveControl = this.moveControl;
@@ -188,22 +201,32 @@
       cursorPosition.applyMatrix4(controller.matrixWorld);
       cursorPosition.add(new THREE.Vector3(0, -this.state.height / 2, 0));
       object3D.position.copy(cursorPosition);
+
+      object3D.lookAt(camera.position);
     }
 
-    rWindow.prototype.update = function () {
+    rWindow.prototype.onDistance = function () {
+    }
+
+    rWindow.prototype.update = function (camera) {
       var windowMesh = this.windowMesh;
       var resizeControl = this.resizeControl;
       var moveControl = this.moveControl;
+      var distanceControl = this.distanceControl;
 
       // set window size
       windowMesh.scale.set(this.state.width, this.state.height, 1);
       // set ui control positions
       resizeControl.position.x = this.state.width / 2;
       resizeControl.position.y = this.state.height / 2 * -1;
-      resizeControl.position.z = 0;      
+      resizeControl.position.z = 0;
       moveControl.position.x = 0;
       moveControl.position.y = this.state.height / 2;
       moveControl.position.z = 0;
+      moveControl.scale.set(this.state.width * 0.6, 0.2, 0.2);
+      distanceControl.position.x = (this.state.width / 2 * 0.6) + 0.2;
+      distanceControl.position.y = this.state.height / 2;
+      distanceControl.position.z = 0;
 
       // update window state interactions
       this.updateInteractionState();
@@ -212,7 +235,10 @@
         this.onResize();
       }
       if (this.state.is('moving')) {
-        this.onMove();
+        this.onMove(camera);
+      }
+      if (this.state.is('distancing')) {
+        this.onDistance();
       }
     }
     </script>
@@ -310,7 +336,7 @@
       }
 
       function render() {
-        resizeable.update();
+        resizeable.update(camera);
         renderer.render( scene, camera );
       }
     </script>
