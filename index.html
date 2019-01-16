@@ -245,7 +245,21 @@
     <script>
       var container;
       var camera, scene, renderer;
+
+
+      var controllers = [];
       var controller1, controller2;
+      var deltaControllerPosition = new THREE.Vector3();
+      var controllerQuaternion = new THREE.Quaternion();
+      var controllerPosition = new THREE.Vector3();
+      var controllerEuler = new THREE.Euler();
+      var EYES_TO_ELBOW = {x: 0.175, y: -0.3, z: -0.03};
+      // Vector from eyes to elbow (divided by user height).
+      var FOREARM = {x: 0, y: 0, z: -0.175};
+      //var userHeight = new THREE.Vector3();
+
+
+      var triggers = [];
 
       var room;
 
@@ -258,6 +272,122 @@
 
       init();
       animate();
+
+      function findGamepad(id) {
+        // adapted from
+        // https://github.com/mrdoob/three.js/blob/master/src/renderers/webvr/WebVRManager.js
+        var gamepads = navigator.getGamepads && navigator.getGamepads();
+
+        for ( var i = 0, j = 0, l = gamepads.length; i < l; i ++ ) {
+          var gamepad = gamepads[ i ];
+          if ( gamepad && ( gamepad.id === 'Daydream Controller' ||
+            gamepad.id === 'Gear VR Controller' || gamepad.id === 'Oculus Go Controller' ||
+            gamepad.id === 'OpenVR Gamepad' || gamepad.id.startsWith( 'Oculus Touch' ) ||
+            gamepad.id.startsWith( 'Spatial Controller' ) ) ) {
+
+            if ( j === id ) return gamepad;
+
+            j ++;
+          }
+        }
+      }
+
+      function getController(id) {
+        // adapted from
+        // https://github.com/mrdoob/three.js/blob/master/src/renderers/webvr/WebVRManager.js
+        var controller = controllers[ id ];
+        if ( controller === undefined ) {
+          controller = new THREE.Group();
+          controller.matrixAutoUpdate = false;
+          controller.visible = false;
+          controllers[ id ] = controller;
+        }
+        return controller;
+      }
+
+      function applyArmModel(controllerPosition, gamepad) {
+        // adapted from
+        // https://github.com/aframevr/aframe/blob/v0.8.0/src/components/tracked-controls.js#L90
+        var pose = gamepad.pose;
+        var hand = (gamepad ? gamepad.hand : undefined) || 'right';
+        var headObject3D = camera;
+        var userHeightVec = new THREE.Vector3().setFromMatrixPosition(renderer.vr.getStandingMatrix());
+        var userHeight = userHeightVec.y;
+
+        // Use camera position as head position.
+        controllerPosition.copy(headObject3D.position);
+        // Set offset for degenerate "arm model" to elbow.
+        deltaControllerPosition.set(
+              EYES_TO_ELBOW.x * (hand === 'left' ? -1 : hand === 'right' ? 1 : 0),
+              EYES_TO_ELBOW.y,  // Lower than our eyes.
+              EYES_TO_ELBOW.z);  // Slightly out in front.
+        // Scale offset by user height.
+        deltaControllerPosition.multiplyScalar(userHeight);
+        // Apply camera Y rotation (not X or Z, so you can look down at your hand).
+        deltaControllerPosition.applyAxisAngle(headObject3D.up, headObject3D.rotation.y);
+
+        // Apply rotated offset to position.
+        controllerPosition.add(deltaControllerPosition);
+
+         // Set offset for degenerate "arm model" forearm. Forearm sticking out from elbow.
+        deltaControllerPosition.set(FOREARM.x, FOREARM.y, FOREARM.z);
+        // Scale offset by user height.
+        deltaControllerPosition.multiplyScalar(userHeight);
+        // Apply controller X/Y rotation (tilting up/down/left/right is usually moving the arm).
+        if (pose.orientation) {
+          controllerQuaternion.fromArray(pose.orientation);
+        } else {
+          controllerQuaternion.copy(headObject3D.quaternion);
+        }
+        controllerEuler.setFromQuaternion(controllerQuaternion);
+        controllerEuler.set(controllerEuler.x, controllerEuler.y, 0);
+        deltaControllerPosition.applyEuler(controllerEuler);
+        // Apply rotated offset to position.
+        controllerPosition.add(deltaControllerPosition);
+      }
+
+      function updateControllers() {
+        // adapted from
+        // https://github.com/mrdoob/three.js/blob/master/src/renderers/webvr/WebVRManager.js
+        var standingMatrix = renderer.vr.getStandingMatrix();
+        for ( var i = 0; i < controllers.length; i ++ ) {
+          var controller = controllers[ i ];
+          var gamepad = findGamepad( i );
+
+          if ( gamepad !== undefined && gamepad.pose !== undefined ) {
+            if ( gamepad.pose === null ) return;
+
+            var pose = gamepad.pose;
+
+            if ( pose.hasPosition === false ) {
+              applyArmModel(controller.position, gamepad);
+            }
+
+            if ( pose.position !== null ) controller.position.fromArray( pose.position );
+            if ( pose.orientation !== null ) controller.quaternion.fromArray( pose.orientation );
+
+            controller.matrix.compose( controller.position, controller.quaternion, controller.scale );
+
+            controller.matrixWorldNeedsUpdate = true;
+            controller.visible = true;
+
+            //  Trigger
+            var buttonId = gamepad.id === 'Daydream Controller' ? 0 : 1;
+
+            if ( triggers[ i ] !== gamepad.buttons[ buttonId ].pressed ) {
+              triggers[ i ] = gamepad.buttons[ buttonId ].pressed;
+              if ( triggers[ i ] === true ) {
+                controller.dispatchEvent( { type: 'selectstart' } );
+              } else {
+                controller.dispatchEvent( { type: 'selectend' } );
+                controller.dispatchEvent( { type: 'select' } );
+              }
+            }
+          } else {
+            controller.visible = false;
+          }
+        }
+      }
 
       function init() {
         container = document.createElement( 'div' );
@@ -289,10 +419,10 @@
         //
         document.body.appendChild( WEBVR.createButton( renderer ) );
 
-        controller1 = renderer.vr.getController( 0 );
+        controller1 = getController(0);
         scene.add( controller1 );
 
-        controller2 = renderer.vr.getController( 1 );
+        controller2 = getController(1);
         scene.add( controller2 );
 
         // helpers
@@ -338,6 +468,7 @@
       function render() {
         resizeable.update(camera);
         renderer.render( scene, camera );
+        updateControllers();
       }
     </script>
   </body>
